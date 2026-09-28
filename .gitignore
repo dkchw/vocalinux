@@ -89,6 +89,8 @@ out/
 .nuxt/
 dist/
 build/
+result
+result-*
 
 # Flatpak build artifacts
 .flatpak-builder/

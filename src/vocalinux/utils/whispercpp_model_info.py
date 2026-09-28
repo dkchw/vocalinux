@@ -26,6 +26,32 @@ logger = logging.getLogger(__name__)
 # checksum failure. Both the pin and the digests are refreshed together by
 # scripts/generate-model-checksums.py.
 _WHISPERCPP_REPO = "https://huggingface.co/ggerganov/whisper.cpp/resolve"
+_GERMAN_TINY_REPO = "https://huggingface.co/wabisabisocial/whisper-tiny-german-ggml/resolve"
+_GERMAN_TINY_REVISION = "36ca71e1fda6e09dad252300ca9d312295492c72"
+
+_MODEL_ALIASES = {
+    "primeline/whisper-tiny-german": "tiny.de",
+    "https://huggingface.co/primeline/whisper-tiny-german": "tiny.de",
+    "http://huggingface.co/primeline/whisper-tiny-german": "tiny.de",
+    "whisper-tiny-german": "tiny.de",
+    "tiny-de": "tiny.de",
+    "wabisabisocial/whisper-tiny-german-ggml": "tiny.de",
+    "https://huggingface.co/wabisabisocial/whisper-tiny-german-ggml": "tiny.de",
+}
+
+
+def normalize_model_name(name: str) -> str:
+    """Normalize aliases and URLs to catalog model names."""
+    if not isinstance(name, str):
+        return name
+    cleaned = name.strip()
+    cleaned_slash = cleaned.rstrip("/")
+    if cleaned_slash in _MODEL_ALIASES:
+        return _MODEL_ALIASES[cleaned_slash]
+    lowered = cleaned_slash.lower()
+    if lowered in _MODEL_ALIASES:
+        return _MODEL_ALIASES[lowered]
+    return name
 
 
 def whispercpp_model_file(model_name: str) -> str:
@@ -33,18 +59,25 @@ def whispercpp_model_file(model_name: str) -> str:
 
     "large" is an alias the UI offers; upstream only ships the versioned file.
     """
+    model_name = normalize_model_name(model_name)
+    if model_name == "tiny.de":
+        return "ggml-tiny-de.bin"
     file_model_name = "large-v3" if model_name == "large" else model_name
     return f"ggml-{file_model_name}.bin"
 
 
 def _model_url(model_name: str) -> str:
     """Build the Hugging Face URL for a ggml whisper.cpp model."""
+    model_name = normalize_model_name(model_name)
+    if model_name == "tiny.de":
+        return f"{_GERMAN_TINY_REPO}/{_GERMAN_TINY_REVISION}/ggml-tiny-de.bin"
     return f"{_WHISPERCPP_REPO}/{whispercpp_revision()}/{whispercpp_model_file(model_name)}"
 
 
 _WHISPERCPP_MODEL_SPECS = [
     ("tiny", 74, "39M", "Fastest, lowest accuracy"),
     ("tiny.en", 74, "39M", "English-only tiny model"),
+    ("tiny.de", 74, "39M", "German fine-tuned model (primeline/whisper-tiny-german)"),
     ("tiny-q5_1", 15, "39M", "Quantized tiny model, lowest memory"),
     ("tiny.en-q5_1", 15, "39M", "Quantized English-only tiny model"),
     ("tiny-q8_0", 32, "39M", "Q8 quantized tiny model"),
@@ -90,7 +123,7 @@ AVAILABLE_MODELS = list(WHISPERCPP_MODEL_INFO.keys())
 MODEL_SIZES = ["tiny", "base", "small", "medium", "large"]
 
 MODEL_VARIANTS_BY_SIZE = {
-    "tiny": ["tiny", "tiny.en", "tiny-q5_1", "tiny.en-q5_1", "tiny-q8_0"],
+    "tiny": ["tiny", "tiny.en", "tiny.de", "tiny-q5_1", "tiny.en-q5_1", "tiny-q8_0"],
     "base": ["base", "base.en", "base-q5_1", "base.en-q5_1", "base-q8_0"],
     "small": [
         "small",
@@ -116,7 +149,7 @@ MODEL_VARIANTS_BY_SIZE = {
 
 def get_model_size(model_name: str) -> str:
     """Return the top-level whisper.cpp size bucket for a model variant."""
-    model_name = model_name.lower()
+    model_name = normalize_model_name(model_name).lower()
     if model_name.startswith("large"):
         return "large"
     return model_name.split(".", 1)[0].split("-", 1)[0]
@@ -127,7 +160,9 @@ def get_model_variants(model_size: str) -> list[str]:
     return list(MODEL_VARIANTS_BY_SIZE.get(model_size.lower(), []))
 
 
-def default_variant_for_size(model_size: str, language_is_english: bool) -> Optional[str]:
+def default_variant_for_size(
+    model_size: str, language_is_english: bool, language: Optional[str] = None
+) -> Optional[str]:
     """Return the default specialization for a size bucket and language."""
     variants = get_model_variants(model_size)
     if not variants:
@@ -136,6 +171,9 @@ def default_variant_for_size(model_size: str, language_is_english: bool) -> Opti
     english_variant = f"{model_size}.en"
     if language_is_english and english_variant in variants:
         return english_variant
+
+    if language in ("de", "german") and f"{model_size}.de" in variants:
+        return f"{model_size}.de"
 
     standard_variant = "large" if model_size == "large" else model_size
     if standard_variant in variants:
@@ -146,7 +184,14 @@ def default_variant_for_size(model_size: str, language_is_english: bool) -> Opti
 
 def is_english_only_model(model_name: str) -> bool:
     """Return whether a whisper.cpp model variant is English-only."""
+    model_name = normalize_model_name(model_name)
     return ".en" in model_name.lower()
+
+
+def is_german_model(model_name: str) -> bool:
+    """Return whether a whisper.cpp model variant is German-specialized."""
+    model_name = normalize_model_name(model_name).lower()
+    return ".de" in model_name or "german" in model_name
 
 
 # Compute backend types
@@ -487,6 +532,7 @@ def get_model_path(model_name: str) -> str:
     Returns:
         Path to the model file
     """
+    model_name = normalize_model_name(model_name)
     whispercpp_dir = os.path.join(models_dir(), "whispercpp")
     os.makedirs(whispercpp_dir, exist_ok=True)
 
@@ -507,6 +553,7 @@ def is_model_downloaded(model_name: str) -> bool:
     Returns:
         True if model exists, False otherwise
     """
+    model_name = normalize_model_name(model_name)
     model_path = get_model_path(model_name)
     return os.path.exists(model_path)
 
@@ -527,6 +574,7 @@ def delete_model(model_name: str) -> str:
         FileNotFoundError: The model file is not present.
         OSError: The file could not be removed.
     """
+    model_name = normalize_model_name(model_name)
     if model_name not in WHISPERCPP_MODEL_INFO:
         raise ValueError(f"Unknown whisper.cpp model: {model_name}")
 
