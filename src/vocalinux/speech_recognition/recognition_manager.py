@@ -40,7 +40,12 @@ from ..utils.whisper_model_info import (
     whisper_model_file,
     whisper_model_url,
 )
-from ..utils.whispercpp_model_info import WHISPERCPP_MODEL_INFO, get_model_path, is_model_downloaded
+from ..utils.whispercpp_model_info import (
+    WHISPERCPP_MODEL_INFO,
+    get_model_path,
+    is_model_downloaded,
+    normalize_model_name,
+)
 from ..version import __version__
 from .command_processor import CommandProcessor
 from .silero_vad import SILERO_CHUNK_SIZE, load_silero_vad
@@ -1660,6 +1665,7 @@ class SpeechRecognitionManager:
             _preload_pywhispercpp_shared_libraries()
             from pywhispercpp.model import Model  # noqa: F401 — fail fast if missing
 
+            self.model_size = normalize_model_name(self.model_size)
             # Validate model size for whisper.cpp
             valid_models = list(WHISPERCPP_MODEL_INFO.keys())
             if self.model_size not in valid_models:
@@ -3797,9 +3803,12 @@ class SpeechRecognitionManager:
             self.engine = engine
             restart_needed = True
 
-        if model_size is not None and model_size != self.model_size:
-            self.model_size = model_size
-            restart_needed = True
+        if model_size is not None:
+            if (engine or self.engine) == "whisper_cpp":
+                model_size = normalize_model_name(model_size)
+            if model_size != self.model_size:
+                self.model_size = model_size
+                restart_needed = True
 
         # Language change requires restart for both engines
         # Whisper needs to know the language for transcription

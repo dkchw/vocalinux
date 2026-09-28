@@ -216,8 +216,33 @@ def _whispercpp_entries(wanted: Iterable[str]) -> tuple[list[Entry], str]:
         if digest:
             by_name[sibling["rfilename"]] = (digest, int(lfs.get("size", 0)))
 
+    community_repos = {
+        "ggml-tiny-de.bin": (
+            "wabisabisocial/whisper-tiny-german-ggml",
+            "36ca71e1fda6e09dad252300ca9d312295492c72",
+        ),
+    }
+
     entries, missing = [], []
     for filename in wanted:
+        if filename in community_repos:
+            repo, comm_rev = community_repos[filename]
+            comm_payload = _fetch_json(
+                f"https://huggingface.co/api/models/{repo}/revision/{comm_rev}?blobs=true"
+            )
+            found = False
+            for sibling in comm_payload.get("siblings", []):
+                if sibling.get("rfilename") == filename:
+                    lfs = sibling.get("lfs") or {}
+                    digest = lfs.get("oid") or lfs.get("sha256")
+                    if digest:
+                        entries.append(Entry(filename, "sha256", digest, int(lfs.get("size", 0))))
+                        found = True
+                        break
+            if not found:
+                missing.append(filename)
+            continue
+
         if filename not in by_name:
             missing.append(filename)
             continue

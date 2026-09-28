@@ -125,9 +125,12 @@ class TestManifestCoverage(unittest.TestCase):
         self.assertRegex(revision, r"^[0-9a-f]{40}$")
 
     def test_download_urls_use_the_pinned_revision(self):
+        from vocalinux.utils.whispercpp_model_info import _GERMAN_TINY_REVISION
+
         revision = whispercpp_revision()
         for name, info in WHISPERCPP_MODEL_INFO.items():
-            self.assertIn(f"/resolve/{revision}/", info["url"], name)
+            expected_rev = _GERMAN_TINY_REVISION if name == "tiny.de" else revision
+            self.assertIn(f"/resolve/{expected_rev}/", info["url"], name)
 
 
 class TestVerifyFile(unittest.TestCase):

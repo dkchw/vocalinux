@@ -90,10 +90,12 @@ from ..utils.whispercpp_model_info import get_model_size as get_whispercpp_model
 from ..utils.whispercpp_model_info import get_model_variants as get_whispercpp_model_variants
 from ..utils.whispercpp_model_info import get_recommended_model as get_recommended_whispercpp_model
 from ..utils.whispercpp_model_info import is_english_only_model as is_english_only_whispercpp_model
+from ..utils.whispercpp_model_info import is_german_model as is_german_whispercpp_model
 from ..utils.whispercpp_model_info import is_model_downloaded as is_whispercpp_model_downloaded
 from ..utils.whispercpp_model_info import (
     list_downloaded_models as list_downloaded_whispercpp_models,
 )
+from ..utils.whispercpp_model_info import normalize_model_name as normalize_whispercpp_model_name
 from ..version import __copyright__, __url__, __version__  # noqa: E402
 from .config_manager import (  # noqa: E402
     DEFAULT_CONFIG,
@@ -217,6 +219,9 @@ def _engine_from_display(display_name: str) -> str:
 
 def _model_display_name(model_name: str) -> str:
     """Get a user-friendly model display name."""
+    norm = normalize_whispercpp_model_name(model_name)
+    if norm == "tiny.de":
+        return "Tiny German (primeline)"
     if model_name == "large":
         return "Large v3"
 
@@ -225,6 +230,9 @@ def _model_display_name(model_name: str) -> str:
         if part.endswith(".en"):
             display_parts.append(part[:-3].capitalize())
             display_parts.append("EN")
+        elif part.endswith(".de"):
+            display_parts.append(part[:-3].capitalize())
+            display_parts.append("DE")
         elif part.startswith("q"):
             display_parts.append(part.upper())
         elif part == "turbo":
@@ -239,6 +247,10 @@ def _model_display_name(model_name: str) -> str:
 
 def _model_specialization_display_name(model_name: str) -> str:
     """Get a concise label for a whisper.cpp model variant."""
+    norm = normalize_whispercpp_model_name(model_name)
+    if norm == "tiny.de" or is_german_whispercpp_model(model_name):
+        return "German (primeline)"
+
     if model_name == "large":
         return "Standard v3"
 
@@ -274,6 +286,11 @@ def _model_specialization_display_name(model_name: str) -> str:
 def _language_is_english(language_id: str) -> bool:
     """Return whether a language ID maps to English for Whisper."""
     return SUPPORTED_LANGUAGES.get(language_id, {}).get("whisper") == "en"
+
+
+def _language_is_german(language_id: str) -> bool:
+    """Return whether a language ID maps to German for Whisper."""
+    return SUPPORTED_LANGUAGES.get(language_id, {}).get("whisper") == "de"
 
 
 def _decode_simple_languages(primary: str, wants_second: bool, secondary: Optional[str]) -> str:
@@ -322,30 +339,38 @@ def _recommended_whispercpp_variant_for_language(
     """Adjust a hardware recommendation to the selected language."""
     recommended_size = get_whispercpp_model_size(recommended_model)
     english_variant = f"{recommended_size}.en"
+    german_variant = f"{recommended_size}.de"
 
     if _language_is_english(language_id) and english_variant in WHISPERCPP_MODEL_INFO:
         return english_variant, reason
+    if _language_is_german(language_id) and german_variant in WHISPERCPP_MODEL_INFO:
+        return german_variant, reason
 
     return recommended_model, reason
 
 
 def _default_whispercpp_variant_for_size(model_size: str, language_id: str) -> Optional[str]:
     """Return the default specialization for a user-selected size and language."""
-    return default_variant_for_size(model_size, _language_is_english(language_id))
+    whisper_lang = SUPPORTED_LANGUAGES.get(language_id, {}).get("whisper")
+    return default_variant_for_size(
+        model_size,
+        _language_is_english(language_id),
+        language=whisper_lang or language_id,
+    )
 
 
 def _is_language_paired_standard_variant(model_name: str) -> bool:
-    """Return whether a model id is the bare multilingual / .en pair for its size.
+    """Return whether a model id is the bare multilingual / .en / .de pair for its size.
 
     Size bucket names (tiny, base, small, medium) are also the multilingual
     specialization ids. Config often stores those ambiguous size-level defaults,
     so they must not be treated as a locked multilingual choice.
     """
-    model_name = model_name.lower()
+    model_name = normalize_whispercpp_model_name(model_name).lower()
     size = get_whispercpp_model_size(model_name)
     if size == "large":
         return model_name == "large"
-    return model_name in {size, f"{size}.en"}
+    return model_name in {size, f"{size}.en", f"{size}.de"}
 
 
 def _mirror_whispercpp_english_variant(model_name: str) -> str:
@@ -362,14 +387,16 @@ def _mirror_whispercpp_english_variant(model_name: str) -> str:
 
 def _whispercpp_variant_for_language(selected_model: str, language_id: str) -> str:
     """Retarget a saved specialization when language implies .en vs multilingual."""
-    selected_model = selected_model.lower()
+    selected_model = normalize_whispercpp_model_name(selected_model).lower()
     size = get_whispercpp_model_size(selected_model)
     variants = get_whispercpp_model_variants(size)
     if selected_model not in variants:
         return selected_model
 
     wants_english = _language_is_english(language_id)
+    wants_german = _language_is_german(language_id)
     is_english_only = is_english_only_whispercpp_model(selected_model)
+    is_german = is_german_whispercpp_model(selected_model)
 
     if _is_language_paired_standard_variant(selected_model):
         default = _default_whispercpp_variant_for_size(size, language_id)
@@ -383,6 +410,11 @@ def _whispercpp_variant_for_language(selected_model: str, language_id: str) -> s
             default = _default_whispercpp_variant_for_size(size, language_id)
             if default in variants:
                 return default
+
+    if not wants_german and is_german:
+        default = _default_whispercpp_variant_for_size(size, language_id)
+        if default in variants:
+            return default
 
     return selected_model
 
@@ -3249,6 +3281,17 @@ class SettingsDialog(Gtk.Dialog):
         self.model_info_subtitle.get_style_context().add_class("model-info-subtitle")
         self.model_info_card.pack_start(self.model_info_subtitle, False, False, 0)
 
+        # Actions for active/selected model
+        self.model_actions_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.model_actions_box.set_no_show_all(True)
+        self.model_delete_button = Gtk.Button(label="Delete model from disk")
+        self.model_delete_button.get_style_context().add_class("destructive-action")
+        self.model_delete_button.set_tooltip_text("Delete this downloaded model to free disk space")
+        self.model_delete_button.set_no_show_all(True)
+        self.model_delete_button.connect("clicked", self._on_active_model_delete_clicked)
+        self.model_actions_box.pack_start(self.model_delete_button, False, False, 0)
+        self.model_info_card.pack_start(self.model_actions_box, False, False, 0)
+
         # The recommendation used to be a plain label, which left the panel stating
         # the right answer while the pickers kept the wrong one (#778).
         self.model_recommendation_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -5265,6 +5308,12 @@ class SettingsDialog(Gtk.Dialog):
             return False
         return is_english_only_whispercpp_model(self._get_selected_whispercpp_model())
 
+    def _is_selected_whispercpp_model_german(self) -> bool:
+        """Return whether the selected model is a whisper.cpp German variant."""
+        if self._get_selected_engine() != "whisper_cpp":
+            return False
+        return is_german_whispercpp_model(self._get_selected_whispercpp_model())
+
     def _set_combo_active_id_or_first(self, combo, active_id: Optional[str]) -> bool:
         """Set a combo to an ID, falling back to the first row."""
         if active_id and combo.set_active_id(active_id):
@@ -5746,6 +5795,66 @@ class SettingsDialog(Gtk.Dialog):
 
         self._populate_model_options()
         self._update_model_info()
+        self._refresh_unused_downloads()
+
+    def _on_active_model_delete_clicked(self, widget: Any) -> None:
+        """Confirm and delete the currently selected downloaded model."""
+        model_id = self._active_removable_model_id()
+        if not model_id:
+            return
+
+        engine = self._get_selected_engine()
+        if engine == "whisper_cpp":
+            if not is_whispercpp_model_downloaded(model_id):
+                return
+        elif engine == "whisper":
+            if not _is_whisper_model_downloaded(model_id):
+                return
+        elif engine == "vosk":
+            size = (self.model_combo.get_active_id() or "").lower()
+            if not _is_vosk_model_downloaded(size, self.language):
+                return
+        elif engine == "parakeet":
+            if not parakeet.is_model_downloaded(model_id):
+                return
+        elif engine == "faster_whisper":
+            if not is_faster_whisper_model_downloaded(model_id):
+                return
+        else:
+            return
+
+        display_name = _model_display_name(model_id)
+        if not self._confirm_model_delete(
+            f"Delete {display_name}?",
+            f"{display_name} will be removed from disk. Speech recognition will be unavailable until a model is downloaded again.",
+        ):
+            return
+
+        if hasattr(self, "speech_engine") and self.speech_engine:
+            try:
+                self.speech_engine.unload_model(reason="manual")
+            except Exception as e:
+                logger.warning("Error unloading model before deletion: %s", e)
+
+        try:
+            self._delete_model_from_disk(model_id)
+        except (OSError, ValueError, FileNotFoundError) as e:
+            logger.error("Failed to delete model %s: %s", model_id, e)
+            err = Gtk.MessageDialog(
+                transient_for=self,
+                flags=Gtk.DialogFlags.MODAL,
+                message_type=Gtk.MessageType.ERROR,
+                buttons=Gtk.ButtonsType.OK,
+                text="Could not delete model",
+            )
+            err.format_secondary_text(str(e))
+            err.run()
+            err.destroy()
+            return
+
+        self._populate_model_options()
+        self._update_model_info()
+        self._refresh_unused_downloads()
 
     def _on_engine_changed(self, widget):
         """Handle changes in the selected engine."""
@@ -5955,6 +6064,13 @@ class SettingsDialog(Gtk.Dialog):
         if self._is_selected_whispercpp_model_english_only():
             self.language_warning.set_markup(
                 "<span foreground='#e5a50a'>⚠ This model only understands English.</span>"
+            )
+            self.language_warning.show()
+        elif self._is_selected_whispercpp_model_german() and not _language_is_german(
+            lang_code or ""
+        ):
+            self.language_warning.set_markup(
+                "<span foreground='#e5a50a'>⚠ This model is specialized for German.</span>"
             )
             self.language_warning.show()
         elif lang_info.get("warning"):
@@ -6392,8 +6508,14 @@ class SettingsDialog(Gtk.Dialog):
 
         if is_downloaded:
             status = "<span foreground='#26a269'>Downloaded</span>"
+            if engine != "remote_api" and hasattr(self, "model_actions_box"):
+                self.model_actions_box.show()
+                self.model_delete_button.show()
         else:
             status = f"<span foreground='#e5a50a'>Download ~{_format_size(info['size_mb'])}</span>"
+            if hasattr(self, "model_actions_box"):
+                self.model_actions_box.hide()
+                self.model_delete_button.hide()
         self.model_info_subtitle.set_markup(f"{extra_info} · {status}")
 
         target = recommended

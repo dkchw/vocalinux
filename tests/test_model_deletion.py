@@ -45,6 +45,25 @@ def test_whispercpp_delete_unknown_and_missing(tmp_path):
             delete_model("tiny")
 
 
+def test_whispercpp_delete_german_model_by_alias(tmp_path):
+    with patch("vocalinux.utils.whispercpp_model_info.models_dir", return_value=str(tmp_path)):
+        from vocalinux.utils.whispercpp_model_info import get_model_path, is_model_downloaded
+
+        tiny_de = get_model_path("tiny.de")
+        os.makedirs(os.path.dirname(tiny_de), exist_ok=True)
+        with open(tiny_de, "wb") as handle:
+            handle.write(b"german-weights")
+
+        assert is_model_downloaded("primeline/whisper-tiny-german")
+        assert is_model_downloaded("tiny.de")
+        assert list_downloaded_models() == ["tiny.de"]
+
+        deleted = delete_model("primeline/whisper-tiny-german")
+        assert deleted == tiny_de
+        assert not os.path.exists(tiny_de)
+        assert not is_model_downloaded("tiny.de")
+
+
 def test_vosk_dirname_and_unique_list(tmp_path):
     assert vosk_model_dirname("small", "en-us") == "vosk-model-small-en-us-0.15"
     assert vosk_model_dirname("medium", "en-us") == "vosk-model-en-us-0.22"

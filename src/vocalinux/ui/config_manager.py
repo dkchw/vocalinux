@@ -168,12 +168,12 @@ DEFAULT_CONFIG = {
 
 
 def _multilingual_sibling(model_name: str) -> str:
-    """Drop the ``.en`` infix so medium.en / medium.en-q5_0 become multilingual."""
-    if ".en" not in model_name:
-        return model_name
-    stripped = model_name.replace(".en", "", 1)
-    if stripped in WHISPERCPP_MODEL_INFO:
-        return stripped
+    """Drop the ``.en`` or ``.de`` infix so specialized models become multilingual."""
+    for infix in (".en", ".de"):
+        if infix in model_name:
+            stripped = model_name.replace(infix, "", 1)
+            if stripped in WHISPERCPP_MODEL_INFO:
+                return stripped
     size = get_whispercpp_model_size(model_name)
     derived = default_variant_for_size(size, language_is_english=False)
     return derived if derived in WHISPERCPP_MODEL_INFO else model_name
@@ -189,11 +189,20 @@ def resolve_whispercpp_variant(saved_model: str, pinned_variant: str, language_i
     specialization. True leftover specializations (turbo, versioned large,
     quantized multilingual) are still honoured.
     """
-    language_is_english = SUPPORTED_LANGUAGES.get(language_id, {}).get("whisper") == "en"
+    from ..utils.whispercpp_model_info import is_german_model, normalize_model_name
+
+    saved_model = normalize_model_name(saved_model)
+    pinned_variant = normalize_model_name(pinned_variant)
+
+    whisper_lang = SUPPORTED_LANGUAGES.get(language_id, {}).get("whisper")
+    language_is_english = whisper_lang == "en"
+    language_is_german = whisper_lang == "de" or language_id in ("de", "german")
 
     pinned = pinned_variant.lower() if isinstance(pinned_variant, str) else ""
     if pinned in WHISPERCPP_MODEL_INFO:
         if not language_is_english and is_english_only_whispercpp_model(pinned):
+            return _multilingual_sibling(pinned)
+        if not language_is_german and is_german_model(pinned):
             return _multilingual_sibling(pinned)
         return pinned
 
@@ -202,17 +211,22 @@ def resolve_whispercpp_variant(saved_model: str, pinned_variant: str, language_i
     if size not in WHISPERCPP_MODEL_SIZES:
         size = get_whispercpp_model_size("tiny")
 
-    # Honour true leftover specializations, but not a plain English-only id.
+    # Honour true leftover specializations, but not a plain language-specialized id on mismatched language.
     if (
         saved in WHISPERCPP_MODEL_INFO
         and saved not in WHISPERCPP_MODEL_SIZES
         and saved != f"{size}.en"
+        and saved != f"{size}.de"
     ):
         if not language_is_english and is_english_only_whispercpp_model(saved):
             return _multilingual_sibling(saved)
+        if not language_is_german and is_german_model(saved):
+            return _multilingual_sibling(saved)
         return saved
 
-    derived = default_variant_for_size(size, language_is_english)
+    derived = default_variant_for_size(
+        size, language_is_english, language="de" if language_is_german else None
+    )
     if derived in WHISPERCPP_MODEL_INFO:
         return derived
     return saved if saved in WHISPERCPP_MODEL_INFO else "tiny"

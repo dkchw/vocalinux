@@ -67,8 +67,14 @@ def parse_arguments():
         type=str,
         help=(
             "Speech recognition model ID. Examples: small, medium, large, "
-            "medium.en-q5_0, large-v3-turbo"
+            "medium.en-q5_0, large-v3-turbo, tiny.de, primeline/whisper-tiny-german"
         ),
+    )
+    parser.add_argument(
+        "--delete-model",
+        type=str,
+        metavar="MODEL",
+        help="Delete a downloaded speech recognition model from disk and exit",
     )
     parser.add_argument(
         "--language",
@@ -251,6 +257,42 @@ def main():
     # Parse arguments first so flags like --version work even when
     # another instance already holds the single-instance lock
     args = parse_arguments()
+
+    if getattr(args, "delete_model", None):
+        target = args.delete_model
+        from .utils.whispercpp_model_info import (
+            delete_model as delete_whispercpp_model,
+            is_model_downloaded as is_whispercpp_downloaded,
+            normalize_model_name as normalize_whispercpp_name,
+        )
+
+        norm_whispercpp = normalize_whispercpp_name(target)
+        if is_whispercpp_downloaded(norm_whispercpp):
+            path = delete_whispercpp_model(norm_whispercpp)
+            print(f"Deleted whisper.cpp model '{norm_whispercpp}' ({path})")
+            sys.exit(0)
+
+        from .utils.vosk_model_info import delete_vosk_model, list_downloaded_vosk_models
+
+        for v in list_downloaded_vosk_models():
+            if target in (v.dirname, v.size):
+                delete_vosk_model(v.dirname)
+                print(f"Deleted Vosk model '{v.dirname}'")
+                sys.exit(0)
+
+        from .ui.settings_dialog import (
+            WHISPER_MODEL_INFO,
+            _delete_whisper_model,
+            _is_whisper_model_downloaded,
+        )
+
+        if target in WHISPER_MODEL_INFO and _is_whisper_model_downloaded(target):
+            _delete_whisper_model(target)
+            print(f"Deleted Whisper model '{target}'")
+            sys.exit(0)
+
+        print(f"Model '{target}' not found or not downloaded.")
+        sys.exit(1)
 
     # Check for single instance BEFORE any initialization
     from . import single_instance

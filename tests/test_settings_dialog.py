@@ -630,6 +630,11 @@ class TestSettingsDialogHelperFunctions(unittest.TestCase):
         self.assertEqual(_model_display_name("large-v3-turbo"), "Large v3 Turbo")
         self.assertEqual(_model_display_name("large-v3-turbo-q5_0"), "Large v3 Turbo Q5_0")
         self.assertEqual(_model_display_name("tiny.en-q5_1"), "Tiny EN Q5_1")
+        self.assertEqual(_model_display_name("tiny.de"), "Tiny German (primeline)")
+        self.assertEqual(
+            _model_display_name("primeline/whisper-tiny-german"),
+            "Tiny German (primeline)",
+        )
 
     def test_model_specialization_display_name(self):
         """Test concise specialization labels for the second whisper.cpp dropdown."""
@@ -645,6 +650,11 @@ class TestSettingsDialogHelperFunctions(unittest.TestCase):
         self.assertEqual(_model_specialization_display_name("large-v3-turbo"), "Turbo")
         self.assertEqual(_model_specialization_display_name("large-v2-q5_0"), "v2 Q5_0")
         self.assertEqual(_model_specialization_display_name("large-v3-q5_0"), "v3 Q5_0")
+        self.assertEqual(_model_specialization_display_name("tiny.de"), "German (primeline)")
+        self.assertEqual(
+            _model_specialization_display_name("primeline/whisper-tiny-german"),
+            "German (primeline)",
+        )
 
     def test_model_picker_tooltips_explain_when_to_choose_variants(self):
         """Test hover guidance for model picker choices."""
@@ -797,6 +807,8 @@ class TestSettingsDialogHelperFunctions(unittest.TestCase):
         self.assertIn("self.content_box.pack_start(self.unused_island", source_code)
         self.assertIn("self.unused_expander", source_code)
         self.assertIn("self._on_unused_download_delete_clicked", source_code)
+        self.assertIn("self._on_active_model_delete_clicked", source_code)
+        self.assertIn("self.model_delete_button", source_code)
         self.assertNotIn('title="Remove Model"', source_code)
         self.assertIn("self._refresh_unused_downloads()", source_code)
 
